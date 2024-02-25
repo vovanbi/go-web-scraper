@@ -1,0 +1,107 @@
+OnRequest(): Called before making any HTTP request with Visit().
+OnError(): Called if an error occurs in an HTTP request.
+OnResponse(): Called after getting a response from the server.
+OnHTML(): Called after OnResponse(), if the server returned a valid HTML document.
+OnScraped(): Called after all OnHTML() calls ended.
+
+
+package main
+
+import (
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/gocolly/colly"
+)
+
+var (
+	urlFlag            string
+	customSelectorFlag string
+	autoPaginationFlag bool
+	followLinksFlag    string
+	clearCacheFlag     bool
+	ignoreCacheFlag    bool
+)
+
+func init() {
+	flag.StringVar(&urlFlag, "url", "", "URL to scrape")
+	flag.StringVar(&customSelectorFlag, "selector", "", "Custom CSS selector")
+	flag.BoolVar(&autoPaginationFlag, "autopagination", false, "Enable auto-pagination based on an input pattern")
+	flag.StringVar(&followLinksFlag, "followlinks", "", "Enable link following using a CSS selector")
+	flag.BoolVar(&clearCacheFlag, "clearcache", false, "Clear the cache")
+	flag.BoolVar(&ignoreCacheFlag, "ignorecache", false, "Ignore the cache")
+	flag.Parse()
+}
+
+func main() {
+	if urlFlag == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	c := colly.NewCollector(
+		// Add options as needed
+	)
+
+	// Set rate limiting per domain
+	c.Limit(&colly.LimitRule{
+		DomainGlob:  "*",
+		RandomDelay: 1 * time.Second,
+	})
+
+	if ignoreCacheFlag {
+		c.CacheDir = ""
+	} else {
+		c.CacheDir = "./cache"
+	}
+
+	if clearCacheFlag {
+		err := os.RemoveAll("./cache")
+		if err != nil {
+			log.Fatalf("Error clearing cache: %v\n", err)
+		}
+		fmt.Println("Cache cleared successfully")
+	}
+
+	if autoPaginationFlag {
+		c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+			link := e.Attr("href")
+			if strings.Contains(link, "page=") {
+				c.Visit(link)
+			}
+		})
+	}
+
+	if followLinksFlag != "" {
+		c.OnHTML(followLinksFlag, func(e *colly.HTMLElement) {
+			link := e.Attr("href")
+			if link != "" {
+				c.Visit(link)
+			}
+		})
+	}
+
+	if customSelectorFlag != "" {
+		c.OnHTML(customSelectorFlag, func(e *colly.HTMLElement) {
+			// Implement logic to scrape data using custom CSS selector
+		})
+	}
+
+	c.OnRequest(func(r *colly.Request) {
+		fmt.Println("Visiting", r.URL)
+	})
+
+	c.OnError(func(r *colly.Response, err error) {
+		fmt.Println("Request URL:", r.Request.URL, "failed with response:", r, "\nError:", err)
+	})
+
+	c.Visit(urlFlag)
+
+	// Block until all requests are finished
+	c.Wait()
+}
